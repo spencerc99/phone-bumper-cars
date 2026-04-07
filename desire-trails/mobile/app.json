@@ -1,0 +1,55 @@
+{
+  "expo": {
+    "name": "Desire Trails",
+    "slug": "desire-trails",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "dark",
+    "newArchEnabled": true,
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#111111"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "Desire Trails needs your location to record your trail as you walk through the installation.",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "Desire Trails needs background location access to continue recording your trail while the app is in the background.",
+        "NSLocationAlwaysUsageDescription": "Desire Trails needs background location access to continue recording your trail while the app is in the background.",
+        "UIBackgroundModes": ["location"]
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#111111"
+      },
+      "edgeToEdgeEnabled": true,
+      "predictiveBackGestureEnabled": false,
+      "permissions": [
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_BACKGROUND_LOCATION",
+        "FOREGROUND_SERVICE",
+        "FOREGROUND_SERVICE_LOCATION"
+      ]
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "Desire Trails needs your location to record your trail as you walk through the installation.",
+          "locationAlwaysPermission": "Desire Trails needs background location access to continue recording your trail while the app is in the background.",
+          "locationWhenInUsePermission": "Desire Trails needs your location to record your trail.",
+          "isAndroidBackgroundLocationEnabled": true,
+          "isAndroidForegroundServiceEnabled": true
+        }
+      ]
+    ]
+  }
+}
