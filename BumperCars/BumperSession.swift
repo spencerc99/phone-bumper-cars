@@ -8,6 +8,8 @@ import Combine
 import UIKit
 import simd
 import CoreHaptics
+import CoreMotion
+import AVFoundation
 
 class BumperSession: NSObject, ObservableObject {
     // MARK: - Published State
@@ -22,6 +24,23 @@ class BumperSession: NSObject, ObservableObject {
     @Published var showCollisionIndicator: Bool = false
     @Published var collisionPosition: CGPoint = .zero
     @Published var collisionIntensity: CGFloat = 0
+    
+    // Selfie photos
+    @Published var normalSelfie: UIImage? {
+        didSet {
+            if let image = normalSelfie {
+                saveSelfie(image, key: "normalSelfie")
+            }
+        }
+    }
+    @Published var surprisedSelfie: UIImage? {
+        didSet {
+            if let image = surprisedSelfie {
+                saveSelfie(image, key: "surprisedSelfie")
+            }
+        }
+    }
+    @Published var showSurprisedFace: Bool = false
 
     // Debug
     @Published var debugLog: String = ""
@@ -52,6 +71,15 @@ class BumperSession: NSObject, ObservableObject {
     // Core Haptics engine for advanced haptic patterns
     private var hapticEngine: CHHapticEngine?
     private var hapticEngineSupported: Bool = false
+    
+    // Accelerometer for collision detection
+    private let motionManager = CMMotionManager()
+    private var lastAccelerationMagnitude: Double = 0
+    private let accelerometerThreshold: Double = 2.5 // G-force threshold for collision (higher = less sensitive)
+    private var lastAccelerometerCollisionTime: Date?
+    
+    // Audio player for collision sound
+    private var audioPlayer: AVAudioPlayer?
 
     // Phone geometry (meters) - UWB chip is near top-center of phone
     private let phoneGeometry: PhoneGeometry = PhoneGeometry.current()
@@ -68,6 +96,81 @@ class BumperSession: NSObject, ObservableObject {
         impactGenerator.prepare()
         notificationGenerator.prepare()
         setupCoreHaptics()
+        setupAccelerometer()
+        loadSavedSelfies()
+        setupAudio()
+    }
+    
+    // MARK: - Audio Setup
+    
+    private func setupAudio() {
+        guard let soundURL = Bundle.main.url(forResource: "414072__inspectorj__dialogue-pained-yelp-loud-b", withExtension: "wav") else {
+            print("[Audio] Failed to find collision sound file")
+            return
+        }
+        
+        do {
+            audioPlayer = try AVAudioPlayer(contentsOf: soundURL)
+            audioPlayer?.prepareToPlay()
+            
+            // Configure audio session for playback
+            try AVAudioSession.sharedInstance().setCategory(.playback, mode: .default, options: [.mixWithOthers])
+            try AVAudioSession.sharedInstance().setActive(true)
+            
+            print("[Audio] Collision sound loaded successfully")
+        } catch {
+            print("[Audio] Failed to setup audio player: \(error)")
+        }
+    }
+    
+    // MARK: - Selfie Persistence
+    
+    private func saveSelfie(_ image: UIImage, key: String) {
+        guard let data = image.jpegData(compressionQuality: 0.8) else {
+            print("[Storage] Failed to convert image to data for key: \(key)")
+            return
+        }
+        
+        let fileURL = getDocumentsDirectory().appendingPathComponent("\(key).jpg")
+        
+        do {
+            try data.write(to: fileURL)
+            print("[Storage] Saved selfie to: \(fileURL.path)")
+        } catch {
+            print("[Storage] Failed to save selfie: \(error)")
+        }
+    }
+    
+    private func loadSavedSelfies() {
+        // Load normal selfie
+        let normalURL = getDocumentsDirectory().appendingPathComponent("normalSelfie.jpg")
+        if let normalData = try? Data(contentsOf: normalURL),
+           let normalImage = UIImage(data: normalData) {
+            self.normalSelfie = normalImage
+            print("[Storage] Loaded normal selfie")
+        }
+        
+        // Load surprised selfie
+        let surprisedURL = getDocumentsDirectory().appendingPathComponent("surprisedSelfie.jpg")
+        if let surprisedData = try? Data(contentsOf: surprisedURL),
+           let surprisedImage = UIImage(data: surprisedData) {
+            self.surprisedSelfie = surprisedImage
+            print("[Storage] Loaded surprised selfie")
+        }
+    }
+    
+    private func getDocumentsDirectory() -> URL {
+        FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+    }
+    
+    func clearSavedSelfies() {
+        let normalURL = getDocumentsDirectory().appendingPathComponent("normalSelfie.jpg")
+        let surprisedURL = getDocumentsDirectory().appendingPathComponent("surprisedSelfie.jpg")
+        
+        try? FileManager.default.removeItem(at: normalURL)
+        try? FileManager.default.removeItem(at: surprisedURL)
+        
+        print("[Storage] Cleared saved selfies")
     }
     
     // MARK: - Core Haptics Setup
@@ -113,6 +216,50 @@ class BumperSession: NSObject, ObservableObject {
         } catch {
             print("[Haptics] Failed to restart engine: \(error)")
         }
+    }
+    
+    // MARK: - Accelerometer Setup
+    
+    private func setupAccelerometer() {
+        guard motionManager.isAccelerometerAvailable else {
+            print("[Accelerometer] Not available on this device")
+            return
+        }
+        
+        motionManager.accelerometerUpdateInterval = 0.01 // 100Hz
+        motionManager.startAccelerometerUpdates(to: .main) { [weak self] (data, error) in
+            guard let self = self, let data = data else { return }
+            
+            let acceleration = data.acceleration
+            let magnitude = sqrt(acceleration.x * acceleration.x + 
+                                acceleration.y * acceleration.y + 
+                                acceleration.z * acceleration.z)
+            
+            // Detect sudden acceleration spike (collision)
+            let delta = abs(magnitude - self.lastAccelerationMagnitude)
+            
+            // Check cooldown to prevent repeated triggers
+            let now = Date()
+            let canTrigger: Bool
+            if let lastCollision = self.lastAccelerometerCollisionTime {
+                canTrigger = now.timeIntervalSince(lastCollision) > 1.0 // 1 second cooldown
+            } else {
+                canTrigger = true
+            }
+            
+            if delta > self.accelerometerThreshold && canTrigger {
+                // Only trigger if we're connected and close enough
+                if self.isConnected, let distance = self.distance, distance < 0.5 {
+                    print("[Accelerometer] Collision detected! Delta: \(String(format: "%.2f", delta))g")
+                    self.lastAccelerometerCollisionTime = now
+                    self.triggerCollision(direction: self.direction, intensity: Float(min(1.0, delta / 1.0)))
+                }
+            }
+            
+            self.lastAccelerationMagnitude = magnitude
+        }
+        
+        print("[Accelerometer] Started monitoring")
     }
 
     // MARK: - Public Methods
@@ -164,6 +311,9 @@ class BumperSession: NSObject, ObservableObject {
         
         // Stop haptic engine
         hapticEngine?.stop()
+        
+        // Stop accelerometer
+        motionManager.stopAccelerometerUpdates()
         
         connectionStatus = .disconnected
         isConnected = false
@@ -257,7 +407,7 @@ class BumperSession: NSObject, ObservableObject {
         print("[NI] Creating NISession (this will trigger permission prompt if first time)...")
         niSession = NISession()
         niSession?.delegate = self
-        
+
         // Log session info
         print("[NI] NISession created, delegateQueue: \(String(describing: niSession?.delegateQueue))")
 
@@ -542,17 +692,30 @@ class BumperSession: NSObject, ObservableObject {
         DispatchQueue.main.async {
             // Trigger directional haptic
             self.triggerHaptic(intensity: intensity, direction: hapticDirection)
+            
+            // Play collision sound
+            self.playCollisionSound()
 
-            // Show visual indicator
-            self.collisionPosition = position
-            self.collisionIntensity = CGFloat(intensity)
-            self.showCollisionIndicator = true
+            // Show surprised face
+            self.showSurprisedFace = true
 
-            // Hide after animation
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                self.showCollisionIndicator = false
+            // Hide after animation and return to normal face
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                self.showSurprisedFace = false
             }
         }
+    }
+    
+    private func playCollisionSound() {
+        guard let player = audioPlayer else {
+            print("[Audio] Audio player not available")
+            return
+        }
+        
+        // Reset to beginning and play
+        player.currentTime = 0
+        player.play()
+        print("[Audio] Playing collision sound")
     }
 
     private func triggerHaptic(intensity: Float, direction: CollisionDirection = .center) {
@@ -731,15 +894,7 @@ extension BumperSession: NISessionDelegate {
             lastKnownDirection = dir
             print("[NI] ✅ Got direction: x=\(String(format: "%.3f", dir.x)) y=\(String(format: "%.3f", dir.y)) z=\(String(format: "%.3f", dir.z))")
             print("[NI] Direction magnitude: \(String(format: "%.3f", sqrt(dir.x*dir.x + dir.y*dir.y + dir.z*dir.z)))")
-        } else {
-            print("[NI] ❌ Direction is nil")
-            print("[NI] This could be because:")
-            print("[NI]   1. Capability check returned false (but might still work)")
-            print("[NI]   2. Phones too close (<10cm) or too far (>9m)")
-            print("[NI]   3. Phones not in proper orientation (need to be upright)")
-            print("[NI]   4. Missing entitlement (check Apple Developer Portal)")
-            print("[NI]   5. UWB hardware issue")
-        }
+        } 
         
         // Log session state
         if #available(iOS 16.0, *) {
@@ -1011,3 +1166,4 @@ struct PhoneGeometry {
         }
     }
 }
+

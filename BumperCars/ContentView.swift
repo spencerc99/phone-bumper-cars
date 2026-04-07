@@ -4,18 +4,164 @@
 import SwiftUI
 import simd
 
+// MARK: - Shake Detection
+
+// Device shake notification
+extension UIDevice {
+    static let deviceDidShakeNotification = Notification.Name(rawValue: "deviceDidShakeNotification")
+}
+
+// Override motionEnded to detect shake
+extension UIWindow {
+    open override func motionEnded(_ motion: UIEvent.EventSubtype, with event: UIEvent?) {
+        if motion == .motionShake {
+            NotificationCenter.default.post(name: UIDevice.deviceDidShakeNotification, object: nil)
+        }
+    }
+}
+
+// View modifier for shake detection
+struct ShakeViewModifier: ViewModifier {
+    let action: () -> Void
+    
+    func body(content: Content) -> some View {
+        content
+            .onAppear()
+            .onReceive(NotificationCenter.default.publisher(for: UIDevice.deviceDidShakeNotification)) { _ in
+                action()
+            }
+    }
+}
+
+extension View {
+    func onShake(perform action: @escaping () -> Void) -> some View {
+        self.modifier(ShakeViewModifier(action: action))
+    }
+}
+
+// Color extension for hex colors
+extension Color {
+    init(hex: String) {
+        let hex = hex.trimmingCharacters(in: CharacterSet.alphanumerics.inverted)
+        var int: UInt64 = 0
+        Scanner(string: hex).scanHexInt64(&int)
+        let a, r, g, b: UInt64
+        switch hex.count {
+        case 3: // RGB (12-bit)
+            (a, r, g, b) = (255, (int >> 8) * 17, (int >> 4 & 0xF) * 17, (int & 0xF) * 17)
+        case 6: // RGB (24-bit)
+            (a, r, g, b) = (255, int >> 16, int >> 8 & 0xFF, int & 0xFF)
+        case 8: // ARGB (32-bit)
+            (a, r, g, b) = (int >> 24, int >> 16 & 0xFF, int >> 8 & 0xFF, int & 0xFF)
+        default:
+            (a, r, g, b) = (255, 0, 0, 0)
+        }
+        self.init(
+            .sRGB,
+            red: Double(r) / 255,
+            green: Double(g) / 255,
+            blue: Double(b) / 255,
+            opacity: Double(a) / 255
+        )
+    }
+}
+
 struct ContentView: View {
     @StateObject private var bumperSession = BumperSession()
+    @State private var showingCameraSetup = false // Start with false, check for saved photos
+    @State private var captureStep: CaptureStep = .normal
+    @State private var showDebugMenu = false
+    @State private var showDebugInfo = false
+    @State private var showDistance = false
+    
+    enum CaptureStep {
+        case normal, surprised, done
+        
+        var instruction: String {
+            switch self {
+            case .normal: return "Take a normal photo of yourself"
+            case .surprised: return "Now make a surprised face! 😮"
+            case .done: return ""
+            }
+        }
+        
+        var buttonText: String {
+            switch self {
+            case .normal: return "Capture Normal Photo"
+            case .surprised: return "Capture Surprised Photo"
+            case .done: return ""
+            }
+        }
+    }
 
     var body: some View {
         ZStack {
             // Background
             Color.black
                 .ignoresSafeArea()
-
+            
+            if showingCameraSetup {
+                // Selfie capture flow
+                cameraSetupView
+            } else {
+                // Main game view
+                mainGameView
+            }
+        }
+        .onAppear {
+            // Keep screen on while app is active
+            UIApplication.shared.isIdleTimerDisabled = true
+            
+            // Check if we have saved selfies
+            if bumperSession.normalSelfie == nil || bumperSession.surprisedSelfie == nil {
+                // No saved selfies, show camera setup
+                showingCameraSetup = true
+            } else {
+                // Have saved selfies, start the game
+                bumperSession.start()
+            }
+        }
+        .onDisappear {
+            // Re-enable auto-lock when app closes
+            UIApplication.shared.isIdleTimerDisabled = false
+        }
+    }
+    
+    var cameraSetupView: some View {
+        VStack(spacing: 30) {
+            Spacer()
+            
+            Text("Setup Your Selfies")
+                .font(.largeTitle)
+                .fontWeight(.bold)
+                .foregroundColor(.white)
+            
+            Text(captureStep.instruction)
+                .font(.title2)
+                .foregroundColor(.yellow)
+                .multilineTextAlignment(.center)
+                .padding()
+            
+            // Camera capture view with button
+            CameraCaptureView(onPhotoCaptured: { image in
+                handlePhotoCaptured(image)
+            })
+            
+            Spacer()
+        }
+        .padding()
+    }
+    
+    var mainGameView: some View {
+        ZStack {
+            // Background flash - changes to bright orange on collision
+            Color(hex: bumperSession.showSurprisedFace ? "#ff9900" : "#000000")
+                .ignoresSafeArea()
+                .animation(.none, value: bumperSession.showSurprisedFace) // Instant, no animation
+            
             VStack(spacing: 30) {
                 // Title
-                Text("Bumper Cars")
+                Text("Bumper Phones")
                     .font(.largeTitle)
                     .fontWeight(.bold)
                     .foregroundColor(.white)
@@ -25,37 +171,69 @@ struct ContentView: View {
 
                 Spacer()
 
-                // Center section with camera preview and distance/direction
+                // Center section with selfie display
                 VStack(spacing: 20) {
-                    // Camera preview in center
-                    CameraPreviewView()
-                        .frame(width: 200, height: 150)
-                        .clipShape(RoundedRectangle(cornerRadius: 16))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 16)
-                                .stroke(Color.white.opacity(0.3), lineWidth: 2)
-                        )
-                        .shadow(color: .black.opacity(0.3), radius: 10, x: 0, y: 5)
-                    
-                    // Distance and Direction below camera
-                    if bumperSession.isConnected {
-                        DistanceView(distance: bumperSession.distance)
-
-                        // Direction indicator
-                        if let direction = bumperSession.direction {
-                            DirectionView(direction: direction)
+                    // Selfie display - switches between normal and surprised
+                    // Use ZStack to preload both images for instant switching
+                    ZStack {
+                        if let normalSelfie = bumperSession.normalSelfie {
+                            Image(uiImage: normalSelfie)
+                                .resizable()
+                                .aspectRatio(contentMode: .fill)
+                                .frame(width: 250, height: 350)
+                                .clipShape(RoundedRectangle(cornerRadius: 20))
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 20)
+                                        .stroke(Color.white, lineWidth: 4)
+                                )
+                                .shadow(color: .black.opacity(0.3), radius: 20, x: 0, y: 10)
+                                .opacity(bumperSession.showSurprisedFace ? 0 : 1)
                         }
-                    } else {
-                        Text("Searching for nearby device...")
-                            .foregroundColor(.gray)
-                            .italic()
+                        
+                        if let surprisedSelfie = bumperSession.surprisedSelfie {
+                            Image(uiImage: surprisedSelfie)
+                                .resizable()
+                                .aspectRatio(contentMode: .fill)
+                                .frame(width: 250, height: 350)
+                                .clipShape(RoundedRectangle(cornerRadius: 20))
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 20)
+                                        .stroke(Color.white, lineWidth: 4)
+                                )
+                                .shadow(color: .black.opacity(0.3), radius: 20, x: 0, y: 10)
+                                .scaleEffect(1.05)
+                                .opacity(bumperSession.showSurprisedFace ? 1 : 0)
+                        }
+                    }
+                    .offset(y: -80) // Move photo up 40px to center it better
+                    .animation(.none, value: bumperSession.showSurprisedFace) // Instant switch, no animation
+                    .onTapGesture(count: 3) {
+                        // Triple tap to retake photos
+                        retakePhotos()
+                    }
+                    
+                    // Distance display (only if enabled)
+                    if showDistance {
+                        if bumperSession.isConnected {
+                            if let distance = bumperSession.distance {
+                                Text(String(format: "%.2f m", distance))
+                                    .font(.title)
+                                    .fontWeight(.bold)
+                                    .foregroundColor(.white)
+                            }
+                        } else {
+                            Text("Searching for nearby device...")
+                                .foregroundColor(.gray)
+                                .italic()
+                        }
                     }
                 }
 
                 Spacer()
 
-                // Debug info
-                ScrollView {
+                // Debug info (only if enabled)
+                if showDebugInfo {
+                    ScrollView {
                     VStack(alignment: .leading, spacing: 8) {
                         Text("Peers found: \(bumperSession.peersFound)")
                             .font(.caption)
@@ -84,21 +262,147 @@ struct ContentView: View {
                     .padding(8)
                     .background(Color.black.opacity(0.5))
                     .cornerRadius(8)
+                    }
+                    .frame(maxHeight: 200)
                 }
-                .frame(maxHeight: 200)
             }
             .padding()
-
-            // Collision indicator overlay
-            CollisionOverlayView(
-                isVisible: bumperSession.showCollisionIndicator,
-                position: bumperSession.collisionPosition,
-                intensity: bumperSession.collisionIntensity
+            
+            // Debug menu overlay
+            if showDebugMenu {
+                debugMenuOverlay
+            }
+            
+            // Debug menu trigger - double tap top right corner
+            VStack {
+                HStack {
+                    Spacer()
+                    Color.clear
+                        .frame(width: 80, height: 80)
+                        .contentShape(Rectangle())
+                        .onTapGesture(count: 2) {
+                            // Toggle debug menu on double tap
+                            withAnimation(.spring(response: 0.3)) {
+                                showDebugMenu.toggle()
+                            }
+                        }
+                }
+                Spacer()
+            }
+        }
+    }
+    
+    var debugMenuOverlay: some View {
+        ZStack {
+            // Semi-transparent background
+            Color.black.opacity(0.7)
+                .ignoresSafeArea()
+                .onTapGesture {
+                    withAnimation(.spring(response: 0.3)) {
+                        showDebugMenu = false
+                    }
+                }
+            
+            // Menu
+            VStack(spacing: 20) {
+                Text("Debug Menu")
+                    .font(.title2)
+                    .fontWeight(.bold)
+                    .foregroundColor(.white)
+                
+                Divider()
+                    .background(Color.white)
+                
+                Toggle("Show Debug Info", isOn: $showDebugInfo)
+                    .toggleStyle(SwitchToggleStyle(tint: .orange))
+                    .foregroundColor(.white)
+                
+                Toggle("Show Distance", isOn: $showDistance)
+                    .toggleStyle(SwitchToggleStyle(tint: .orange))
+                    .foregroundColor(.white)
+                
+                Divider()
+                    .background(Color.white)
+                
+                Button(action: {
+                    retakePhotos()
+                    withAnimation(.spring(response: 0.3)) {
+                        showDebugMenu = false
+                    }
+                }) {
+                    Text("Retake Photos")
+                        .font(.headline)
+                        .foregroundColor(.white)
+                        .padding()
+                        .frame(maxWidth: .infinity)
+                        .background(Color.orange)
+                        .cornerRadius(10)
+                }
+                
+                Button(action: {
+                    withAnimation(.spring(response: 0.3)) {
+                        showDebugMenu = false
+                    }
+                }) {
+                    Text("Close")
+                        .font(.headline)
+                        .foregroundColor(.white)
+                        .padding()
+                        .frame(maxWidth: .infinity)
+                        .background(Color.gray)
+                        .cornerRadius(10)
+                }
+            }
+            .padding(30)
+            .background(
+                RoundedRectangle(cornerRadius: 20)
+                    .fill(Color(white: 0.15))
             )
+            .padding(40)
         }
-        .onAppear {
-            bumperSession.start()
+    }
+    
+    // MARK: - Helper Functions
+    
+    func handlePhotoCaptured(_ image: UIImage) {
+        print("[UI] Photo captured for step: \(captureStep)")
+        
+        switch captureStep {
+        case .normal:
+            bumperSession.normalSelfie = image
+            captureStep = .surprised
+            
+        case .surprised:
+            bumperSession.surprisedSelfie = image
+            captureStep = .done
+            
+            // Start the game
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                showingCameraSetup = false
+                bumperSession.start()
+            }
+            
+        case .done:
+            break
         }
+    }
+    
+    func retakePhotos() {
+        print("[UI] Triple tap detected - retaking photos")
+        
+        // Stop the session
+        bumperSession.stop()
+        
+        // Clear saved selfies from storage
+        bumperSession.clearSavedSelfies()
+        
+        // Reset photos and capture step
+        bumperSession.normalSelfie = nil
+        bumperSession.surprisedSelfie = nil
+        captureStep = .normal
+        
+        // Show camera setup again
+        showingCameraSetup = true
     }
 }
 

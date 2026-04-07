@@ -1,18 +1,53 @@
-// ABOUTME: Camera preview component displaying the front-facing camera feed.
-// ABOUTME: Wraps AVFoundation's AVCaptureVideoPreviewLayer for SwiftUI integration.
-// ABOUTME: Supports capturing photos from the front camera.
+// ABOUTME: Wrapper for camera preview with capture button
+// ABOUTME: Manages photo capture flow for selfie setup
 
 import SwiftUI
 import AVFoundation
 
-struct CameraPreviewView: UIViewRepresentable {
-    var onPhotoCaptured: ((UIImage) -> Void)?
+struct CameraCaptureView: View {
+    let onPhotoCaptured: (UIImage) -> Void
+    @State private var coordinator: CameraPreviewView.Coordinator?
+    
+    var body: some View {
+        VStack(spacing: 20) {
+            CameraPreviewViewWithCapture(
+                coordinator: $coordinator,
+                onPhotoCaptured: onPhotoCaptured
+            )
+            .frame(width: 300, height: 400)
+            .clipShape(RoundedRectangle(cornerRadius: 20))
+            .overlay(
+                RoundedRectangle(cornerRadius: 20)
+                    .stroke(Color.white, lineWidth: 3)
+            )
+            
+            Button(action: {
+                coordinator?.capturePhoto()
+            }) {
+                ZStack {
+                    Circle()
+                        .fill(Color.white)
+                        .frame(width: 70, height: 70)
+                    
+                    Circle()
+                        .stroke(Color.white, lineWidth: 4)
+                        .frame(width: 85, height: 85)
+                }
+            }
+        }
+    }
+}
+
+struct CameraPreviewViewWithCapture: UIViewRepresentable {
+    @Binding var coordinator: CameraPreviewView.Coordinator?
+    let onPhotoCaptured: (UIImage) -> Void
+    
     func makeUIView(context: Context) -> UIView {
         let view = UIView(frame: .zero)
         
         // Create capture session
         let captureSession = AVCaptureSession()
-        captureSession.sessionPreset = .medium
+        captureSession.sessionPreset = .photo
         
         // Get front camera
         guard let frontCamera = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .front),
@@ -36,9 +71,8 @@ struct CameraPreviewView: UIViewRepresentable {
         let previewLayer = AVCaptureVideoPreviewLayer(session: captureSession)
         previewLayer.videoGravity = .resizeAspectFill
         
-        // Handle rotation based on device orientation (iOS 16.0 compatible)
+        // Handle rotation
         if let connection = previewLayer.connection, connection.isVideoOrientationSupported {
-            // Portrait orientation
             connection.videoOrientation = .portrait
         }
         
@@ -49,6 +83,11 @@ struct CameraPreviewView: UIViewRepresentable {
         context.coordinator.captureSession = captureSession
         context.coordinator.previewLayer = previewLayer
         
+        // Expose coordinator to parent
+        DispatchQueue.main.async {
+            self.coordinator = context.coordinator
+        }
+        
         // Start session on background queue
         DispatchQueue.global(qos: .userInitiated).async {
             captureSession.startRunning()
@@ -58,7 +97,6 @@ struct CameraPreviewView: UIViewRepresentable {
     }
     
     func updateUIView(_ uiView: UIView, context: Context) {
-        // Update preview layer frame when view size changes
         DispatchQueue.main.async {
             if let previewLayer = context.coordinator.previewLayer {
                 previewLayer.frame = uiView.bounds
@@ -66,43 +104,11 @@ struct CameraPreviewView: UIViewRepresentable {
         }
     }
     
-    func makeCoordinator() -> Coordinator {
-        let coordinator = Coordinator()
+    func makeCoordinator() -> CameraPreviewView.Coordinator {
+        let coordinator = CameraPreviewView.Coordinator()
         coordinator.onPhotoCaptured = onPhotoCaptured
         return coordinator
     }
-    
-    class Coordinator: NSObject, AVCapturePhotoCaptureDelegate {
-        var captureSession: AVCaptureSession?
-        var previewLayer: AVCaptureVideoPreviewLayer?
-        var photoOutput: AVCapturePhotoOutput?
-        var onPhotoCaptured: ((UIImage) -> Void)?
-        
-        func capturePhoto() {
-            guard let photoOutput = photoOutput else { return }
-            
-            let settings = AVCapturePhotoSettings()
-            photoOutput.capturePhoto(with: settings, delegate: self)
-        }
-        
-        func photoOutput(_ output: AVCapturePhotoOutput, didFinishProcessingPhoto photo: AVCapturePhoto, error: Error?) {
-            guard error == nil,
-                  let imageData = photo.fileDataRepresentation(),
-                  let image = UIImage(data: imageData) else {
-                print("[Camera] Failed to capture photo: \(error?.localizedDescription ?? "unknown")")
-                return
-            }
-            
-            onPhotoCaptured?(image)
-        }
-        
-        deinit {
-            captureSession?.stopRunning()
-        }
-    }
-    
-    func capturePhoto() {
-        // This will be called from SwiftUI
-    }
 }
+
 

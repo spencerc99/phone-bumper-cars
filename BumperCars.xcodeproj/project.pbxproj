@@ -12,6 +12,8 @@
 		1A0000050000000000000001 /* BumperSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A0000060000000000000001 /* BumperSession.swift */; };
 		1A0000170000000000000001 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 1A0000180000000000000001 /* Assets.xcassets */; };
 		1A00001A0000000000000001 /* CameraPreviewView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A00001B0000000000000001 /* CameraPreviewView.swift */; };
+		1A00001C0000000000000001 /* CameraCaptureView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A00001D0000000000000001 /* CameraCaptureView.swift */; };
+		1A00001E0000000000000001 /* 414072__inspectorj__dialogue-pained-yelp-loud-b.wav in Resources */ = {isa = PBXBuildFile; fileRef = 1A00001F0000000000000001 /* 414072__inspectorj__dialogue-pained-yelp-loud-b.wav */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -22,6 +24,8 @@
 		1A0000080000000000000001 /* BumperCars.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = BumperCars.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		1A0000180000000000000001 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		1A00001B0000000000000001 /* CameraPreviewView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CameraPreviewView.swift; sourceTree = "<group>"; };
+		1A00001D0000000000000001 /* CameraCaptureView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CameraCaptureView.swift; sourceTree = "<group>"; };
+		1A00001F0000000000000001 /* 414072__inspectorj__dialogue-pained-yelp-loud-b.wav */ = {isa = PBXFileReference; lastKnownFileType = audio.wav; path = "414072__inspectorj__dialogue-pained-yelp-loud-b.wav"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -50,7 +54,9 @@
 				1A0000040000000000000001 /* ContentView.swift */,
 				1A0000060000000000000001 /* BumperSession.swift */,
 				1A00001B0000000000000001 /* CameraPreviewView.swift */,
+				1A00001D0000000000000001 /* CameraCaptureView.swift */,
 				1A0000180000000000000001 /* Assets.xcassets */,
+				1A00001F0000000000000001 /* 414072__inspectorj__dialogue-pained-yelp-loud-b.wav */,
 				1A0000070000000000000001 /* Info.plist */,
 			);
 			path = BumperCars;
@@ -123,6 +129,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				1A0000170000000000000001 /* Assets.xcassets in Resources */,
+				1A00001E0000000000000001 /* 414072__inspectorj__dialogue-pained-yelp-loud-b.wav in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -137,6 +144,7 @@
 				1A0000030000000000000001 /* ContentView.swift in Sources */,
 				1A0000050000000000000001 /* BumperSession.swift in Sources */,
 				1A00001A0000000000000001 /* CameraPreviewView.swift in Sources */,
+				1A00001C0000000000000001 /* CameraCaptureView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
